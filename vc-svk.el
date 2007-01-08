@@ -223,8 +223,7 @@ This is only meaningful if you don't use the implicit checkout model
 
 (defconst vc-svk-status-file-re
   "^[ ADMCI?!~][ MC][ L][ +][ S]..\\([-0-9]+\\) +\\([0-9?]+\\) +\\([^ ]+\\) +")
-</pre>
-<pre>;;;
+;;;
 ;;; State-querying functions
 ;;;
 
