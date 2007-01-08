@@ -1,3 +1,5 @@
+;;; vc-svk.el --- non-resident support for SVK version-control
+
 ;; Based upon vc-svn.el
 ;; Hack--most things are very slow/may work improperly.
 
@@ -162,6 +164,7 @@
                        date))))
   (defalias 'vc-svk-date-to-day 'date-to-day))
 
+
 ;;;
 ;;; Customization options
 ;;;
@@ -219,9 +222,9 @@ This is only meaningful if you don't use the implicit checkout model
   )
 
 (defconst vc-svk-status-file-re
-  "^[ ADMCI?!~][ MC][ L][ +][ S]..\\([ *]\\) +\\([-0-9]+\\) +\\([0-9?]+\\) +\\([^ ]+\\) +")
-
-;;;
+  "^[ ADMCI?!~][ MC][ L][ +][ S]..\\([-0-9]+\\) +\\([0-9?]+\\) +\\([^ ]+\\) +")
+</pre>
+<pre>;;;
 ;;; State-querying functions
 ;;;
 
@@ -287,6 +290,7 @@ This is only meaningful if you don't use the implicit checkout model
   (vc-svk-registered file)
   (vc-file-getprop file 'vc-workfile-version))
 
+
 (defun vc-log-version-at-point ()
   "Extract the revision number at point as a string."
   (buffer-substring-no-properties (1+ (point))
@@ -317,6 +321,7 @@ This is only meaningful if you don't use the implicit checkout model
       (when (bolp)
         (vc-log-version-at-point)))))
 
+
 (defun vc-svk-checkout-model (file)
   "SVK-specific version of `vc-checkout-model'."
   ;; It looks like Subversion has no equivalent of CVSREAD.
@@ -333,6 +338,7 @@ This is only meaningful if you don't use the implicit checkout model
                "(added)" "(modified)"))
           ((eq svk-state 'needs-patch) "(patch)")
           ((eq svk-state 'needs-merge) "(merge)"))))
+
 
 ;;;
 ;;; State-changing functions
@@ -492,6 +498,7 @@ The changes are between FIRST-VERSION and SECOND-VERSION."
             (error "Couldn't analyze svk update result")))
       (message "Merging changes into %s...done" file))))
 
+
 ;;;
 ;;; History functions
 ;;;
@@ -648,6 +655,7 @@ the revision dates at first and a little memory to cache them.")
     (re-search-forward "\\$[A-Za-z\300-\326\330-\366\370-\377]+\
 \\(: [\t -#%-\176\240-\377]*\\)?\\$" nil t)))
 
+
 ;;;
 ;;; Internal functions
 ;;;
@@ -707,6 +715,7 @@ Set file properties accordingly."
              'edited))
           (t 'edited)))))))
 
+
 (defun vc-svk-dir-state-heuristic (dir)
   "Find the SVK state of all files in DIR, using only local information."
   (vc-svk-dir-state dir 'local))
@@ -746,6 +755,7 @@ Set file properties accordingly."
   (shell-command-to-string (concat "svk info "
                                    (expand-file-name file))))
 
+
 (defun vc-svk-file-name-no-trailsep (file)
   "Return filename minus trailing separators.
 
@@ -756,6 +766,7 @@ them and they matter to vc-svk."
              (string-equal (substring file end) "/"))
         (substring file 0 end)
       file)))
+
 
 (defvar vc-svk-co-paths nil)
 (defun vc-svk-co-paths ()
@@ -779,6 +790,7 @@ them and they matter to vc-svk."
                                  (match-string-no-properties 2))))))
         (setq vc-svk-co-paths (nreverse vc-svk-co-paths))))
   vc-svk-co-paths)
+
 
 ;; These will often avoid slow calls to `vc-svk-command'.
 (defun vc-svk-co-path-p (file)
