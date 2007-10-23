@@ -244,7 +244,11 @@ This is only meaningful if you don't use the implicit checkout model
 ;;;###autoload     (load "vc-svk")
 ;;;###autoload     (vc-svk-registered file)))
 
-(add-to-list 'vc-handled-backends 'SVK)
+;; As vc-svk-registered is rather slow, put SVK at the bottom so that
+;; a new buffer is shown quickly.
+(or (member 'SVK vc-handled-backends)
+    (setq vc-handled-backends (append vc-handled-backends '(SVK))))
+
 (defun vc-svk-registered (file)
   "Check if FILE is SVK registered."
 
@@ -775,6 +779,8 @@ them and they matter to vc-svk."
         ;; (re)load
         (with-temp-buffer
           (vc-svk-command t 0 nil "checkout" "--list")
+          ;; `svk checkout --list' modifies ~/.svk/config somehow, so
+          ;; you have to stat it again.
           (setq mtime (nth 5 (file-attributes config)))
           (setq vc-svk-co-paths (list mtime))
           (goto-char (point-min))
