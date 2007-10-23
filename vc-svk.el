@@ -768,14 +768,15 @@ them and they matter to vc-svk."
   (let ((config "~/.svk/config")
         mtime)
     (when (file-readable-p config)
-      (setq mtime (nth 5 (file-attributes "~/.svk/config")))
+      (setq mtime (nth 5 (file-attributes config)))
       (unless (and vc-svk-co-paths           ; has not it been loaded?
                    (vc-svk-time-less-p mtime ; is it unmodified since?
                                        (car vc-svk-co-paths)))
         ;; (re)load
-        (setq vc-svk-co-paths (list mtime))
         (with-temp-buffer
           (vc-svk-command t 0 nil "checkout" "--list")
+          (setq mtime (nth 5 (file-attributes config)))
+          (setq vc-svk-co-paths (list mtime))
           (goto-char (point-min))
           (when (search-forward "==========\n" nil t)
             (while (re-search-forward "^ +\\(.+\\) *\t\\(.+\\)$" nil t)
