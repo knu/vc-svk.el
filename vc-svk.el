@@ -244,11 +244,7 @@ This is only meaningful if you don't use the implicit checkout model
 ;;;###autoload     (load "vc-svk")
 ;;;###autoload     (vc-svk-registered file)))
 
-;; As vc-svk-registered is rather slow, put SVK at the bottom so that
-;; a new buffer is shown quickly.
-(or (member 'SVK vc-handled-backends)
-    (setq vc-handled-backends (append vc-handled-backends '(SVK))))
-
+(add-to-list 'vc-handled-backends 'SVK)
 (defun vc-svk-registered (file)
   "Check if FILE is SVK registered."
 
@@ -774,8 +770,8 @@ them and they matter to vc-svk."
     (when (file-readable-p config)
       (setq mtime (nth 5 (file-attributes config)))
       (unless (and vc-svk-co-paths           ; has not it been loaded?
-                   (vc-svk-time-less-p mtime ; is it unmodified since?
-                                       (car vc-svk-co-paths)))
+                   (not                      ; is it unmodified since?
+                    (vc-svk-time-less-p (car vc-svk-co-paths) mtime)))
         ;; (re)load
         (with-temp-buffer
           (vc-svk-command t 0 nil "checkout" "--list")
@@ -785,7 +781,7 @@ them and they matter to vc-svk."
           (setq vc-svk-co-paths (list mtime))
           (goto-char (point-min))
           (when (search-forward "==========\n" nil t)
-            (while (re-search-forward "^ +\\(.+\\) *\t\\(.+\\)$" nil t)
+            (while (re-search-forward "^ +\\(.+?\\) *\t\\(.+\\)$" nil t)
               (add-to-list 'vc-svk-co-paths
                            (list (match-string-no-properties 2)
                                  (match-string-no-properties 1))))))
