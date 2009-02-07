@@ -105,6 +105,13 @@
 (require 'cl)
 (require 'time-date)
 
+(require 'log-view)
+(setq log-view-message-re
+      (concat
+       "(?:"
+       log-view-message-re
+       "\\|^r\\(?1:[0-9]+\\)\\(?: (orig r[0-9]+)\\)?:  .* | .*"))
+
 ;; Compatibility with Emacs <22
 
 (if (fboundp 'time-less-p)
@@ -537,9 +544,9 @@ The changes are between FIRST-VERSION and SECOND-VERSION."
              ;; working revision, whereas we also want the log of the
              ;; subsequent commits.  At least that's what the
              ;; vc-cvs.el code does.
-             "-rHEAD:0"))
+             "-xrHEAD:1"))
 	;; Dump log for the entire directory.
-	(vc-svk-command buffer 0 nil "log" "-rHEAD:0")))))
+	(vc-svk-command buffer 0 nil "log" "-xrHEAD:1")))))
 
 (defun vc-svk-wash-log ()
   "Remove all non-comment information from log output."
