@@ -35,11 +35,8 @@
 ;; Or it might, thanks to your bug reports.
 
 ;; vc-svn commentary:
-;; This is preliminary support for Subversion (http://subversion.tigris.org/).
-;; It started as `sed s/cvs/svk/ vc.cvs.el' (from version 1.56)
-;; and hasn't been completely fixed since.
-
-;; Sync'd with Subversion's vc-svn.el as of revision 5801.
+;; Sync'd with Subversion's vc-svn.el as of revision 5801. but this version.
+;; has been extensively modified since to handle filesets.
 
 ;;; Bugs:
 
@@ -96,6 +93,9 @@
 ;; * 20060207 (Nelson Elhage)
 ;; 00 Checked into SVK subversion
 ;; 00 Modified vc-svk-parse-parse-status to remove all svn-only cruft and fixed vc-svk-status-file-re
+;;
+;; * 20080207 (Akinori MUSHA)
+;; 00 Merged revisions 1.37-1.38 and 1.41-1.52.
 
 
 ;;; Code:
@@ -229,6 +229,10 @@ This is only meaningful if you don't use the implicit checkout model
 (defconst vc-svk-status-file-re
   "^[ ADMCI?!~][ MC][ +] +\\([-0-9?]+\\) +\\([0-9?]+\\) +\\([^ ]+\\) +")
 
+;;; Properties of the backend
+
+(defun vc-svk-revision-granularity ()
+     'repository)
 ;;;
 ;;; State-querying functions
 ;;;
@@ -278,31 +282,32 @@ This is only meaningful if you don't use the implicit checkout model
   (vc-svk-state file 'local))
 
 (defun vc-svk-dir-state (dir &optional localp)
-  "Find the SVK state of all files in DIR."
+  "Find the SVK state of all files in DIR and its subdirectories."
   (setq localp (or localp (vc-svk-stay-local-p dir)))
   (let ((default-directory dir))
     ;; Don't specify DIR in this command, the default-directory is
     ;; enough.  Otherwise it might fail with remote repositories.
     (with-temp-buffer
+      (buffer-disable-undo)		;; Because these buffers can get huge
       (vc-svk-do-status dir)
       (vc-svk-parse-status localp))))
 
-(defun vc-svk-workfile-version (file)
-  "SVK-specific version of `vc-workfile-version'."
+(defun vc-svk-working-revision (file)
+  "SVK-specific version of `vc-working-revision'."
   ;; There is no need to consult RCS headers under SVK, because we
-  ;; get the workfile version for free when we recognize that a file
+  ;; get the working revision for free when we recognize that a file
   ;; is registered in SVK.
   (vc-svk-registered file)
-  (vc-file-getprop file 'vc-workfile-version))
+  (vc-file-getprop file 'vc-working-revision))
 
-(defun vc-log-version-at-point ()
+(defun vc-log-revision-at-point ()
   "Extract the revision number at point as a string."
   (buffer-substring-no-properties (1+ (point))
                                   (save-excursion
                                     (search-forward ":" nil t)
                                     (1- (point)))))
 
-(defun vc-svk-previous-version (file rev)
+(defun vc-svk-previous-revision (file rev)
   "The greatest revision number string before REV in which FILE was modified."
   ;; Parse log -q to find it. Non-optimal.
   (with-temp-buffer
@@ -312,18 +317,18 @@ This is only meaningful if you don't use the implicit checkout model
     (search-forward-regexp (concat "^r" rev) nil t)
     (goto-char (match-beginning 0))
     (let ((revnum (string-to-number rev)))
-      (unless (= revnum (string-to-number (vc-log-version-at-point)))
+      (unless (= revnum (string-to-number (vc-log-revision-at-point)))
         ;; Otherwise, go line-by-line looking for it.
         (goto-char (point-min))
         (forward-line 1)
         (while (and (bolp) (< revnum
-                              (string-to-number (vc-log-version-at-point))))
+                              (string-to-number (vc-log-revision-at-point))))
           (forward-line 2))
         (forward-line -2))
       ;; The line with the desired revnum:
       (forward-line 2)
       (when (bolp)
-        (vc-log-version-at-point)))))
+        (vc-log-revision-at-point)))))
 
 (defun vc-svk-checkout-model (file)
   "SVK-specific version of `vc-checkout-model'."
@@ -337,22 +342,28 @@ This is only meaningful if you don't use the implicit checkout model
   "SVK-specific version of `vc-dired-state-info'."
   (let ((svk-state (vc-state file)))
     (cond ((eq svk-state 'edited)
-           (if (equal (vc-workfile-version file) "0")
+           (if (equal (vc-working-revision file) "0")
                "(added)" "(modified)"))
-          ((eq svk-state 'needs-patch) "(patch)")
-          ((eq svk-state 'needs-merge) "(merge)"))))
+	  ((eq svn-state 'needs-patch) "(patch)")
+	  ((eq svn-state 'needs-merge) "(merge)"))))
+
 
 ;;;
 ;;; State-changing functions
 ;;;
 
-(defun vc-svk-register (file &optional rev comment)
-  "Register FILE into the SVK version-control system.
-COMMENT can be used to provide an initial description of FILE.
+(defun vc-svk-create-repo ()
+  "Create a new SVK repository."
+  ;; FIXME: not implemented for SVK
+  nil)
+
+(defun vc-svk-register (files &optional rev comment)
+  "Register FILES into the SVK version-control system.
+The COMMENT argument is ignored  This does an add but not a commit.
 
 `vc-register-switches' and `vc-svk-register-switches' are passed to
 the SVK command (in that order)."
-  (apply 'vc-svk-command nil 0 file "add" (vc-svk-switches 'SVK 'register)))
+  (apply 'vc-svk-command nil 0 files "add" (vc-svk-switches 'SVK 'register)))
 
 (defun vc-svk-could-register (file)
   "Return non-nil if FILE could be registered in SVK.
@@ -363,10 +374,11 @@ This is only possible if SVK is responsible for FILE's directory."
 
 (defun vc-svk-init-version () "1")
 
-(defun vc-svk-checkin (file rev comment)
+(defun vc-svk-checkin (files rev comment)
   "SVK-specific version of `vc-backend-checkin'."
+  (if rev (error "Committing to a specific revision is unsupported in SVK."))
   (let ((status (apply
-                 'vc-svk-command nil 1 file "ci"
+                 'vc-svk-command nil 1 files "ci"
                  (nconc (list "-m" comment) (vc-svk-switches 'SVK 'checkin)))))
     (set-buffer "*vc*")
     (goto-char (point-min))
@@ -374,7 +386,8 @@ This is only possible if SVK is responsible for FILE's directory."
       ;; Check checkin problem.
       (cond
        ((search-forward "Transaction is out of date" nil t)
-        (vc-file-setprop file 'vc-state 'needs-merge)
+        (mapc (lambda (file) (vc-file-setprop file 'vc-state 'needs-merge))
+	      files)
         (error (substitute-command-keys
                 (concat "Up-to-date check failed: "
                         "type \\[vc-next-action] to merge in changes"))))
@@ -385,11 +398,12 @@ This is only possible if SVK is responsible for FILE's directory."
         (error "Check-in failed"))))
     ;; Update file properties
     ;; (vc-file-setprop
-    ;;  file 'vc-workfile-version
+    ;;  file 'vc-working-revision
     ;;  (vc-parse-buffer "^\\(new\\|initial\\) revision: \\([0-9.]+\\)" 2))
     ))
 
-(defun vc-svk-find-version (file rev buffer)
+(defun vc-svk-find-revision (file rev buffer)
+  "SVK-specific retrieval of a specified revision into a buffer."
   (apply 'vc-svk-command
          buffer 0 file
          "cat"
@@ -413,8 +427,8 @@ This is only possible if SVK is responsible for FILE's directory."
                (vc-svk-command nil 0 file "edit")
              (set-file-modes file (logior (file-modes file) 128))
              (if (equal file buffer-file-name) (toggle-read-only -1))))
-    ;; Check out a particular version (or recreate the file).
-    (vc-file-setprop file 'vc-workfile-version nil)
+    ;; Check out a particular revision (or recreate the file).
+    (vc-file-setprop file 'vc-working-revision nil)
     (apply 'vc-svk-command nil 0 file
            "update"
            ;; default for verbose checkout: clear the sticky tag so
@@ -459,18 +473,18 @@ The changes are between FIRST-VERSION and SECOND-VERSION."
 (defun vc-svk-merge-news (file)
   "Merge in any new changes made to FILE."
   (message "Merging changes into %s..." file)
-  ;; (vc-file-setprop file 'vc-workfile-version nil)
+  ;; (vc-file-setprop file 'vc-working-revision nil)
   (vc-file-setprop file 'vc-checkout-time 0)
   (vc-svk-command nil 0 file "update")
   ;; Analyze the merge result reported by SVK, and set
   ;; file properties accordingly.
   (with-current-buffer (get-buffer "*vc*")
     (goto-char (point-min))
-    ;; get new workfile version
+    ;; get new working revision
     (if (re-search-forward
          "^\\(Updated to\\|At\\) revision \\([0-9]+\\)" nil t)
-        (vc-file-setprop file 'vc-workfile-version (match-string 2))
-      (vc-file-setprop file 'vc-workfile-version nil))
+        (vc-file-setprop file 'vc-working-revision (match-string 2))
+      (vc-file-setprop file 'vc-working-revision nil))
     ;; get file status
     (goto-char (point-min))
     (prog1
@@ -504,62 +518,54 @@ The changes are between FIRST-VERSION and SECOND-VERSION."
 ;;; History functions
 ;;;
 
-(defun vc-svk-print-log (file &optional buffer)
-  "Get change log associated with FILE."
+(defun vc-svk-print-log (files &optional buffer)
+  "Get change log(s) associated with FILES."
   (save-current-buffer
     (vc-setup-buffer buffer)
     (let ((inhibit-read-only t))
       (goto-char (point-min))
-      ;; Add a line to tell log-view-mode what file this is.
-      (insert "Working file: " (file-relative-name file) "\n"))
-    (vc-svk-command
-     buffer
-     (if (and (vc-svk-stay-local-p file) (fboundp 'start-process)) 'async 0)
-     file "log")))
+      (if files
+	  (dolist (file files)
+            (insert "Working file: " file "\n")
+            (vc-svk-command
+             buffer
+             'async
+             ;; (if (and (= (length files) 1) (vc-stay-local-p file)) 'async 0)
+             (list file)
+             "log"
+             ;; By default SVK only shows the log up to the
+             ;; working revision, whereas we also want the log of the
+             ;; subsequent commits.  At least that's what the
+             ;; vc-cvs.el code does.
+             "-rHEAD:0"))
+	;; Dump log for the entire directory.
+	(vc-svk-command buffer 0 nil "log" "-rHEAD:0")))))
 
-(defun vc-svk-diff (file &optional oldvers newvers buffer)
-  "Get a difference report using SVK between two versions of FILE."
-  (unless buffer (setq buffer "*vc-diff*"))
-  (if (and oldvers (equal oldvers (vc-workfile-version file)))
-      ;; Use nil rather than the current revision because svk handles it
-      ;; better (i.e. locally).
-      (setq oldvers nil))
-  (if (string= (vc-workfile-version file) "0")
-      ;; This file is added but not yet committed; there is no master file.
-      (if (or oldvers newvers)
-          (error "No revisions of %s exist" file)
-        ;; We regard this as "changed".
-        ;; Diff it against /dev/null.
-        ;; Note: this is NOT a "svk diff".
-        (apply 'vc-do-command buffer
-               1 "diff" file
-               (append (vc-svk-switches nil 'diff) '("/dev/null")))
-        ;; Even if it's empty, it's locally modified.
-        1)
-    (let* ((switches
-            (if vc-svk-diff-switches
-                (vc-svk-switches 'SVK 'diff)
-              (list "-x" (mapconcat 'identity (vc-svk-switches nil 'diff) " "))))
-           (async (and (not vc-disable-async-diff)
-                       (vc-svk-stay-local-p file)
-                       (or oldvers newvers) ; Svk diffs those locally.
-                       (fboundp 'start-process))))
-      (apply 'vc-svk-command buffer
-             (if async 'async 0)
-             file "diff"
-             (append
-              switches
-              (when oldvers
-                (list "-r" (if newvers (concat oldvers ":" newvers)
-                             oldvers)))))
-      (if async 1                      ; async diff => pessimistic assumption
-        ;; For some reason `svk diff' does not return a useful
-        ;; status w.r.t whether the diff was empty or not.
-        (buffer-size (get-buffer buffer))))))
-
-(defun vc-svk-diff-tree (dir &optional rev1 rev2)
-  "Diff all files at and below DIR."
-  (vc-svk-diff (file-name-as-directory dir) rev1 rev2))
+(defun vc-svk-wash-log ()
+  "Remove all non-comment information from log output."
+  ;; FIXME: not implemented for SVK
+  nil)
+(defun vc-svk-diff (files &optional oldvers newvers buffer)
+  "Get a difference report using SVK between two revisions of fileset FILES."
+  (let* ((switches
+          (if vc-svk-diff-switches
+              (vc-svk-switches 'SVK 'diff)
+            (list "-x" (mapconcat 'identity (vc-svk-switches nil 'diff) " "))))
+         (async (and (not vc-disable-async-diff)
+                     (vc-svk-stay-local-p files)
+                     (or oldvers newvers)))) ; Svk diffs those locally.
+    (apply 'vc-svk-command buffer
+           (if async 'async 0)
+           files "diff"
+           (append
+            switches
+            (when oldvers
+              (list "-r" (if newvers (concat oldvers ":" newvers)
+                           oldvers)))))
+    (if async 1                      ; async diff => pessimistic assumption
+      ;; For some reason `svk diff' does not return a useful
+      ;; status w.r.t whether the diff was empty or not.
+      (buffer-size (get-buffer buffer)))))
 
 ;;;
 ;;; Snapshot system
@@ -605,7 +611,7 @@ the revision dates at first and a little memory to cache them.")
 (defun vc-svk-annotate-time-of-rev (rev)
   (let* ((file (vc-svk-annotate-parent-file))
          (rev (or rev
-                  (vc-workfile-version file)))
+                  (vc-working-revision file)))
          (key (concat rev
                       (or vc-svk-annotate-buffer-depot
                           (setq vc-svk-annotate-buffer-depot
@@ -660,7 +666,7 @@ the revision dates at first and a little memory to cache them.")
 ;;; Internal functions
 ;;;
 
-(defun vc-svk-command (buffer okstatus file &rest flags)
+(defun vc-svk-command (buffer okstatus file-or-list &rest flags)
   "A wrapper around `vc-do-command' for use in vc-svk.el.
 The difference to vc-do-command is that this function always invokes `svk',
 and that it passes `vc-svk-global-switches' to it before FLAGS."
@@ -670,7 +676,7 @@ and that it passes `vc-svk-global-switches' to it before FLAGS."
                       (cons vc-svk-global-switches flags)
                       (append vc-svk-global-switches
                               flags))))
-        (apply 'vc-do-command buffer okstatus "svk" file
+        (apply 'vc-do-command buffer okstatus "svk" file-or-list
                args))))
 
 (defun vc-svk-repository-hostname (file)
@@ -680,6 +686,33 @@ and that it passes `vc-svk-global-switches' to it before FLAGS."
   (let ((info (vc-svk-do-info-string file)))
     (when (string-match "Depot Path: \\(/.*?/\\)" info)
       (match-string 1 info))))
+
+(defun vc-svk-resolve-when-done ()
+  "Call \"svk resolved\" if the conflict markers have been removed."
+  (save-excursion
+    (goto-char (point-min))
+    (if (not (re-search-forward "^<<<<<<< " nil t))
+        (vc-svk-command nil 0 buffer-file-name "resolved"))))
+
+;; Inspired by vc-arch-find-file-hook.
+(defun vc-svk-find-file-hook ()
+  (when (eq ?C (vc-file-getprop buffer-file-name 'vc-svk-status))
+    ;; If the file is marked as "conflicted", then we should try and call
+    ;; "svk resolved" when applicable.
+    (if (save-excursion
+          (goto-char (point-min))
+          (re-search-forward "^<<<<<<< " nil t))
+        ;; There are conflict markers.
+        (progn
+          (smerge-mode 1)
+          (add-hook 'after-save-hook 'vc-svk-resolve-when-done nil t))
+      ;; There are no conflict markers.  This is problematic: maybe it means
+      ;; the conflict has been resolved and we should immediately call "svk
+      ;; resolved", or it means that the file's type does not allow SVK to
+      ;; use conflict markers in which case we don't really know what to do.
+      ;; So let's just punt for now.
+      nil)
+    (message "There are unresolved conflicts in this file")))
 
 (defun vc-svk-parse-status (localp &optional linked-file)
   "Parse output of `vc-svk-do-status' in the current buffer.
@@ -695,7 +728,9 @@ Set file properties accordingly."
         (vc-file-setprop file 'vc-backend 'SVK)
         ;; Use the last-modified revision, so that searching in vc-print-log
         ;; output works.
-        (vc-file-setprop file 'vc-workfile-version (match-string 2))
+        (vc-file-setprop file 'vc-working-revision (match-string 2))
+        ;; Remember SVK's own status.
+        (vc-file-setprop file 'vc-svk-status status)
         (vc-file-setprop
          file 'vc-state
          (cond
@@ -705,7 +740,7 @@ Set file properties accordingly."
             'up-to-date)
            ((eq status ?A)
             ;; If the file was actually copied, (match-string 2) is "-".
-            (vc-file-setprop file 'vc-workfile-version "0")
+            (vc-file-setprop file 'vc-working-revision "0")
             (vc-file-setprop file 'vc-checkout-time 0)
             'edited)
            ((memq status '(?M ?C))
@@ -724,8 +759,8 @@ Set file properties accordingly."
   (and (string-match "^[a-zA-Z]" tag)
        (not (string-match "[^a-z0-9A-Z-_]" tag))))
 
-(defun vc-svk-valid-version-number-p (tag)
-  "Return non-nil if TAG is a valid version number."
+(defun vc-svk-valid-revision-number-p (tag)
+  "Return non-nil if TAG is a valid revision number."
   (and (string-match "^[0-9]" tag)
        (not (string-match "[^0-9]" tag))))
 
