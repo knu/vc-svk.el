@@ -313,35 +313,35 @@ This is only meaningful if you don't use the implicit checkout model
   (vc-svk-registered file)
   (vc-file-getprop file 'vc-working-revision))
 
-(defun vc-log-revision-at-point ()
+(defun vc-svk-log-revision-at-point ()
   "Extract the revision number at point as a string."
   (buffer-substring-no-properties (1+ (point))
                                   (save-excursion
-                                    (search-forward ":" nil t)
+                                    (search-forward-regexp "[ :]" nil t)
                                     (1- (point)))))
 
 (defun vc-svk-previous-revision (file rev)
   "The greatest revision number string before REV in which FILE was modified."
   ;; Parse log -q to find it. Non-optimal.
   (with-temp-buffer
-    (vc-svk-command t 0 file "log" "-q")
+    (vc-svk-command t 0 file "log" "-qx")
     (goto-char (point-min))
     ;; If the file was modified in rev we can jump to it exactly.
-    (search-forward-regexp (concat "^r" rev) nil t)
+    (search-forward-regexp (concat "^r" rev "[ :]") nil t)
     (goto-char (match-beginning 0))
     (let ((revnum (string-to-number rev)))
-      (unless (= revnum (string-to-number (vc-log-revision-at-point)))
+      (unless (= revnum (string-to-number (vc-svk-log-revision-at-point)))
         ;; Otherwise, go line-by-line looking for it.
         (goto-char (point-min))
         (forward-line 1)
         (while (and (bolp) (< revnum
-                              (string-to-number (vc-log-revision-at-point))))
+                              (string-to-number (vc-svk-log-revision-at-point))))
           (forward-line 2))
         (forward-line -2))
       ;; The line with the desired revnum:
       (forward-line 2)
       (when (bolp)
-        (vc-log-revision-at-point)))))
+        (vc-svk-log-revision-at-point)))))
 
 (defun vc-svk-checkout-model (file)
   "SVK-specific version of `vc-checkout-model'."
