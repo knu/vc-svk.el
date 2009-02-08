@@ -100,6 +100,9 @@
 ;; * 20090208 (Akinori MUSHA)
 ;; 00 Make vc-svk-print-log show the whole history using -x.
 ;; 00 Make log-view-mode work.
+;;
+;; * 20090209 (Akinori MUSHA)
+;; 00 Merged revisions 1.73, 1.80, 1.83, and 1.85-1.89 from vc-svn.el.
 
 
 ;;; Code:
@@ -244,8 +247,9 @@ This is only meaningful if you don't use the implicit checkout model
 
 ;;; Properties of the backend
 
-(defun vc-svk-revision-granularity ()
-     'repository)
+(defun vc-svk-revision-granularity () 'repository)
+(defun vc-svk-checkout-model (files) 'implicit)
+
 ;;;
 ;;; State-querying functions
 ;;;
@@ -294,17 +298,6 @@ This is only meaningful if you don't use the implicit checkout model
   "SVK-specific state heuristic."
   (vc-svk-state file 'local))
 
-(defun vc-svk-dir-state (dir &optional localp)
-  "Find the SVK state of all files in DIR and its subdirectories."
-  (setq localp (or localp (vc-svk-stay-local-p dir)))
-  (let ((default-directory dir))
-    ;; Don't specify DIR in this command, the default-directory is
-    ;; enough.  Otherwise it might fail with remote repositories.
-    (with-temp-buffer
-      (buffer-disable-undo)		;; Because these buffers can get huge
-      (vc-svk-do-status dir)
-      (vc-svk-parse-status localp))))
-
 (defun vc-svk-working-revision (file)
   "SVK-specific version of `vc-working-revision'."
   ;; There is no need to consult RCS headers under SVK, because we
@@ -343,23 +336,8 @@ This is only meaningful if you don't use the implicit checkout model
       (when (bolp)
         (vc-svk-log-revision-at-point)))))
 
-(defun vc-svk-checkout-model (file)
-  "SVK-specific version of `vc-checkout-model'."
-  ;; It looks like Subversion has no equivalent of CVSREAD.
-  'implicit)
-
 ;; vc-svk-mode-line-string doesn't exist because the default implementation
 ;; works just fine.
-
-(defun vc-svk-dired-state-info (file)
-  "SVK-specific version of `vc-dired-state-info'."
-  (let ((svk-state (vc-state file)))
-    (cond ((eq svk-state 'edited)
-           (if (equal (vc-working-revision file) "0")
-               "(added)" "(modified)"))
-	  ((eq svn-state 'needs-patch) "(patch)")
-	  ((eq svn-state 'needs-merge) "(merge)"))))
-
 
 ;;;
 ;;; State-changing functions
@@ -427,7 +405,7 @@ This is only possible if SVK is responsible for FILE's directory."
 (defun vc-svk-checkout (file &optional editable rev)
   (message "Checking out %s..." file)
   (with-current-buffer (or (get-file-buffer file) (current-buffer))
-    (vc-call update file editable rev (vc-svk-switches 'SVK 'checkout)))
+    (vc-svk-update file editable rev (vc-svk-switches 'SVK 'checkout)))
   (vc-mode-line file)
   (message "Checking out %s...done" file))
 
@@ -435,7 +413,7 @@ This is only possible if SVK is responsible for FILE's directory."
   (if (and (file-exists-p file) (not rev))
       ;; If no revision was specified, just make the file writable
       ;; if necessary (using `svk-edit' if requested).
-      (and editable (not (eq (vc-svk-checkout-model file) 'implicit))
+      (and editable (not (eq (vc-svk-checkout-model (list file)) 'implicit))
            (if vc-svk-use-edit
                (vc-svk-command nil 0 file "edit")
              (set-file-modes file (logior (file-modes file) 128))
@@ -462,7 +440,7 @@ This is only possible if SVK is responsible for FILE's directory."
   "Revert FILE to the version it was based on."
   (unless contents-done
     (vc-svk-command nil 0 file "revert"))
-  (unless (eq (vc-checkout-model file) 'implicit)
+  (unless (eq (vc-svk-checkout-model (list file)) 'implicit)
     (if vc-svk-use-edit
         (vc-svk-command nil 0 file "unedit")
       ;; Make the file read-only by switching off all w-bits
@@ -554,10 +532,6 @@ The changes are between FIRST-VERSION and SECOND-VERSION."
 	;; Dump log for the entire directory.
 	(vc-svk-command buffer 0 nil "log" "-xrHEAD:1")))))
 
-(defun vc-svk-wash-log ()
-  "Remove all non-comment information from log output."
-  ;; FIXME: not implemented for SVK
-  nil)
 (defun vc-svk-diff (files &optional oldvers newvers buffer)
   "Get a difference report using SVK between two revisions of fileset FILES."
   (let* ((switches
@@ -581,20 +555,20 @@ The changes are between FIRST-VERSION and SECOND-VERSION."
       (buffer-size (get-buffer buffer)))))
 
 ;;;
-;;; Snapshot system
+;;; Tag system
 ;;;
 
-(defun vc-svk-create-snapshot (dir name branchp)
+(defun vc-svk-create-tag (dir name branchp)
   "Assign to DIR's current version a given NAME.
 If BRANCHP is non-nil, the name is created as a branch (and the current
 workspace is immediately moved to that new branch).
 NAME is assumed to be a URL."
   (vc-svk-command nil 0 dir "copy" name)
-  (when branchp (vc-svk-retrieve-snapshot dir name nil)))
+  (when branchp (vc-svk-retrieve-tag dir name nil)))
 
-(defun vc-svk-retrieve-snapshot (dir name update)
-  "Retrieve a snapshot at and below DIR.
-NAME is the name of the snapshot; if it is empty, do a `svk update'.
+(defun vc-svk-retrieve-tag (dir name update)
+  "Retrieve a tag at and below DIR.
+NAME is the name of the tag; if it is empty, do a `svk update'.
 If UPDATE is non-nil, then update (resynch) any affected buffers.
 NAME is assumed to be a URL."
   (vc-svk-command nil 0 dir "switch" name)
@@ -689,7 +663,7 @@ and that it passes `vc-svk-global-switches' to it before FLAGS."
                       (cons vc-svk-global-switches flags)
                       (append vc-svk-global-switches
                               flags))))
-        (apply 'vc-do-command buffer okstatus "svk" file-or-list
+        (apply 'vc-do-command (or buffer "*vc*") okstatus "svk" file-or-list
                args))))
 
 (defun vc-svk-repository-hostname (file)
