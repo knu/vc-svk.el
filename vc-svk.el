@@ -87,15 +87,19 @@
 ;; 00 Fix some rare crashes for un-added subtrees.
 ;; 00 New feature: `vc-annotate-revision-previous-to-line'
 ;;
-;; * 20060207 (Nelson Elhage):
+;; * 20070207 (Nelson Elhage):
 ;; 00 vc-svk-co-paths looks at svk checkout --list, instead of parsing .svk/config, so it works properly with SVK 2.0
 ;;
-;; * 20060207 (Nelson Elhage)
+;; * 20070207 (Nelson Elhage)
 ;; 00 Checked into SVK subversion
 ;; 00 Modified vc-svk-parse-parse-status to remove all svn-only cruft and fixed vc-svk-status-file-re
 ;;
-;; * 20080207 (Akinori MUSHA)
-;; 00 Merged revisions 1.37-1.38 and 1.41-1.52.
+;; * 20090207 (Akinori MUSHA)
+;; 00 Merged revisions 1.37-1.38 and 1.41-1.52 from vc-svn.el.
+;;
+;; * 20090208 (Akinori MUSHA)
+;; 00 Make vc-svk-print-log show the whole history using -x.
+;; 00 Make log-view-mode work.
 
 
 ;;; Code:
@@ -108,9 +112,11 @@
 (require 'log-view)
 (setq log-view-message-re
       (concat
-       "(?:"
+       "\\(?:"
        log-view-message-re
-       "\\|^r\\(?1:[0-9]+\\)\\(?: (orig r[0-9]+)\\)?:  .* | .*"))
+       "\\|"
+       "^r\\(?1:[0-9]+\\)\\(?: (orig r[0-9]+)\\)?:  .* | .*$"
+       "\\)"))
 
 ;; Compatibility with Emacs <22
 
