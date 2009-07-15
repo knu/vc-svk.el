@@ -271,19 +271,22 @@ This is only meaningful if you don't use the implicit checkout model
 
   (let ((lfile (file-truename file))   ; SVK stores truenames
         (file-buffer (current-buffer)))
-    (when (vc-svk-co-path-p lfile)
-      (save-window-excursion            ; being left in some random buffer
-                                        ; confuses `vc-find-file-hook'
-        (with-temp-buffer
-          (cd (file-name-directory lfile))
-          (condition-case nil
-              (progn
-                (vc-svk-do-status lfile)
-                (vc-svk-parse-status t (unless (string-equal file lfile)
-                                         file))
-                (eq 'SVK (vc-file-getprop file 'vc-backend)))
-            ;; We can't find an `svk' executable.  We could also deregister SVK.
-            (file-error nil)))))))
+    (if (and (fboundp 'tramp-tramp-file-p)
+             (tramp-tramp-file-p file))
+        nil
+      (when (vc-svk-co-path-p lfile)
+        (save-window-excursion         ; being left in some random buffer
+                                       ; confuses `vc-find-file-hook'
+          (with-temp-buffer
+            (cd (file-name-directory lfile))
+            (condition-case nil
+                (progn
+                  (vc-svk-do-status lfile)
+                  (vc-svk-parse-status t (unless (string-equal file lfile)
+                                           file))
+                  (eq 'SVK (vc-file-getprop file 'vc-backend)))
+              ;; We can't find an `svk' executable.  We could also deregister SVK.
+              (file-error nil))))))))
 
 (defun vc-svk-state (file &optional localp)
   "SVK-specific version of `vc-state'."
